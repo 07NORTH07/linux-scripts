@@ -1,0 +1,866 @@
+#!/bin/bash
+
+# ─────────────────────────────────────────────
+#  YT DOWNLOADER
+#  github.com/07NORTH07
+# ─────────────────────────────────────────────
+
+# ── UTF-8 locale fix for C.UTF-8 systems ──
+if locale -a 2>/dev/null | grep -qi '^C\.utf8$\|^C\.UTF-8$'; then
+    export LC_ALL=C.UTF-8
+    export LANG=C.UTF-8
+fi
+
+# ── detect whether the terminal supports Unicode box-drawing chars ──
+_charmap="${LC_ALL:-${LC_CTYPE:-$LANG}}"
+case "$_charmap" in
+    *UTF-8*|*utf8*|*UTF8*) UNICODE_OK=true ;;
+    *)                      UNICODE_OK=false ;;
+esac
+
+if $UNICODE_OK; then
+    CH_TL='┌'; CH_TR='┐'; CH_BL='└'; CH_BR='┘'
+    CH_H='─';  CH_V='│'
+    CH_LJ='├'; CH_RJ='┤'
+else
+    # fallback to ASCII borders for non-UTF-8 environments
+    CH_TL='+'; CH_TR='+'; CH_BL='+'; CH_BR='+'
+    CH_H='-';  CH_V='|'
+    CH_LJ='+'; CH_RJ='+'
+fi
+
+# ── config paths and default directories ──
+CONFIG_DIR="$HOME/.config/yt"
+CONFIG_FILE="$CONFIG_DIR/config"
+
+MUSIC_DIR="$HOME/Music/yt-mp3"
+VIDEO_DIR="$HOME/Videos/yt-mp4"
+THUMB_DIR="$HOME/Pictures/yt-thumbs"
+UI_LANG="en"
+
+if [[ -f "$CONFIG_FILE" ]]; then
+    source "$CONFIG_FILE"
+fi
+
+# ── terminal color codes ──
+C_GREEN='\033[0;32m'
+C_BLUE='\033[0;34m'
+C_YELLOW='\033[0;33m'
+C_RED='\033[0;31m'
+C_GRAY='\033[0;90m'
+C_WHITE='\033[0;97m'
+C_DIM='\033[2m'
+C_CYAN='\033[0;36m'
+C_MAGENTA='\033[0;35m'
+C_RESET='\033[0m'
+
+# ══════════════════════════════════════════════
+#  TRANSLATIONS
+# ══════════════════════════════════════════════
+t() {
+    local key="$1"
+    case "$UI_LANG" in
+
+# ─── ENGLISH ──────────────────────────────────
+        en) case "$key" in
+            title)           echo "YT DOWNLOADER" ;;
+            by)              echo "github.com/07NORTH07" ;;
+            # main menu
+            menu_mp3)        echo "Download audio" ;;
+            menu_mp4)        echo "Download video" ;;
+            menu_thumb)      echo "Download thumbnail" ;;
+            menu_settings)   echo "Settings" ;;
+            menu_quit)       echo "Quit" ;;
+            menu_uninstall)  echo "Uninstall script" ;;
+            # prompts
+            enter_url)       echo "Paste the link (q — cancel):" ;;
+            saved_to)        echo "Saved to:" ;;
+            choose)          echo "Choose (q — cancel):" ;;
+            # audio formats
+            audio_title)     echo "AUDIO FORMAT" ;;
+            af_mp3_cover)    echo "MP3   + cover art" ;;
+            af_mp3_no)       echo "MP3   — no cover" ;;
+            af_wav)          echo "WAV   (lossless, DAW)" ;;
+            af_flac)         echo "FLAC  (lossless, DAW)" ;;
+            af_aiff)         echo "AIFF  (lossless, DAW)" ;;
+            af_m4a)          echo "M4A   (AAC, Apple)" ;;
+            af_opus)         echo "OPUS  (small size)" ;;
+            # video formats
+            video_title)     echo "VIDEO FORMAT" ;;
+            vf_mp4)          echo "MP4   (universal)" ;;
+            vf_mkv)          echo "MKV   (best quality)" ;;
+            vf_webm)         echo "WEBM  (web / VP9)" ;;
+            # video quality
+            vq_title)        echo "VIDEO QUALITY" ;;
+            vq_144)          echo "144p  — minimum" ;;
+            vq_360)          echo "360p  — fast" ;;
+            vq_480)          echo "480p  — SD" ;;
+            vq_720)          echo "720p  — HD" ;;
+            vq_1080)         echo "1080p — Full HD (rec.)" ;;
+            vq_1440)         echo "1440p — 2K" ;;
+            vq_2160)         echo "2160p — 4K" ;;
+            vq_max)          echo "Max   — best available" ;;
+            # thumbnail types
+            thumb_title)     echo "THUMBNAIL TYPE" ;;
+            thumb_square)    echo "Square     500×500" ;;
+            thumb_hd)        echo "Original   16:9" ;;
+            thumb_both)      echo "Both" ;;
+            # settings menu
+            settings_title)  echo "Settings" ;;
+            set_lang)        echo "Change language" ;;
+            set_music)       echo "Music folder" ;;
+            set_video)       echo "Video folder" ;;
+            set_thumb)       echo "Thumbnails folder" ;;
+            back)            echo "<- Back  [b/q]" ;;
+            done_ok)         echo "Done!" ;;
+            cancel)          echo "Cancelled." ;;
+            err_url)         echo "Error: no URL provided." ;;
+            err_dep)         echo "Not found:" ;;
+            press_key)       echo "Press any key..." ;;
+            folder_hint)     echo "q — keep current" ;;
+            current)         echo "current" ;;
+            # first run setup
+            setup_title)     echo "FIRST RUN" ;;
+            setup_lang)      echo "Select language / Выберите язык / Оберіть мову:" ;;
+            setup_music)     echo "Music folder [Enter = default, q = skip]:" ;;
+            setup_video)     echo "Video folder [Enter = default, q = skip]:" ;;
+            setup_thumb)     echo "Thumbnails folder [Enter = default, q = skip]:" ;;
+            setup_saved)     echo "Settings saved!" ;;
+            # uninstall
+            uninstall_title) echo "UNINSTALL" ;;
+            uninstall_warn)  echo "Will remove: /usr/bin/yt  /usr/bin/yt-clean" ;;
+            uninstall_conf)  echo "Config ~/.config/yt/ will also be removed." ;;
+            uninstall_note)  echo "Your music / video / thumbnail folders will NOT be deleted." ;;
+            uninstall_ask)   echo "Confirm? [y/N]:" ;;
+            uninstall_done)  echo "Script removed." ;;
+            uninstall_abort) echo "Cancelled. Script is still here." ;;
+            uninstall_sudo)  echo "sudo required to remove from /usr/bin/." ;;
+        esac ;;
+
+# ─── RUSSIAN ──────────────────────────────────
+        ru) case "$key" in
+            title)           echo "YT DOWNLOADER" ;;
+            by)              echo "github.com/07NORTH07" ;;
+            menu_mp3)        echo "Скачать аудио" ;;
+            menu_mp4)        echo "Скачать видео" ;;
+            menu_thumb)      echo "Скачать превью" ;;
+            menu_settings)   echo "Настройки" ;;
+            menu_quit)       echo "Выйти" ;;
+            menu_uninstall)  echo "Удалить скрипт" ;;
+            enter_url)       echo "Вставьте ссылку (q — отмена):" ;;
+            saved_to)        echo "Сохранено в:" ;;
+            choose)          echo "Выберите (q — отмена):" ;;
+            audio_title)     echo "ФОРМАТ АУДИО" ;;
+            af_mp3_cover)    echo "MP3   + обложка" ;;
+            af_mp3_no)       echo "MP3   — без обложки" ;;
+            af_wav)          echo "WAV   (без потерь, DAW)" ;;
+            af_flac)         echo "FLAC  (без потерь, DAW)" ;;
+            af_aiff)         echo "AIFF  (без потерь, DAW)" ;;
+            af_m4a)          echo "M4A   (AAC, Apple)" ;;
+            af_opus)         echo "OPUS  (маленький размер)" ;;
+            video_title)     echo "ФОРМАТ ВИДЕО" ;;
+            vf_mp4)          echo "MP4   (универсальный)" ;;
+            vf_mkv)          echo "MKV   (лучшее качество)" ;;
+            vf_webm)         echo "WEBM  (веб / VP9)" ;;
+            vq_title)        echo "КАЧЕСТВО ВИДЕО" ;;
+            vq_144)          echo "144p  — минимум" ;;
+            vq_360)          echo "360p  — быстро" ;;
+            vq_480)          echo "480p  — SD" ;;
+            vq_720)          echo "720p  — HD" ;;
+            vq_1080)         echo "1080p — Full HD (рек.)" ;;
+            vq_1440)         echo "1440p — 2K" ;;
+            vq_2160)         echo "2160p — 4K" ;;
+            vq_max)          echo "Макс  — лучшее доступное" ;;
+            thumb_title)     echo "ТИП ПРЕВЬЮ" ;;
+            thumb_square)    echo "Квадратное 500×500" ;;
+            thumb_hd)        echo "Оригинал   16:9" ;;
+            thumb_both)      echo "Оба варианта" ;;
+            settings_title)  echo "Настройки" ;;
+            set_lang)        echo "Изменить язык" ;;
+            set_music)       echo "Папка музыки" ;;
+            set_video)       echo "Папка видео" ;;
+            set_thumb)       echo "Папка превью" ;;
+            back)            echo "<- Назад  [b/q]" ;;
+            done_ok)         echo "Готово!" ;;
+            cancel)          echo "Отменено." ;;
+            err_url)         echo "Ошибка: ссылка не указана." ;;
+            err_dep)         echo "Не найдено:" ;;
+            press_key)       echo "Нажмите любую клавишу..." ;;
+            folder_hint)     echo "q — оставить текущую" ;;
+            current)         echo "текущая" ;;
+            setup_title)     echo "ПЕРВЫЙ ЗАПУСК" ;;
+            setup_lang)      echo "Select language / Выберите язык / Оберіть мову:" ;;
+            setup_music)     echo "Папка для музыки [Enter = по умолчанию, q = пропустить]:" ;;
+            setup_video)     echo "Папка для видео [Enter = по умолчанию, q = пропустить]:" ;;
+            setup_thumb)     echo "Папка для превью [Enter = по умолчанию, q = пропустить]:" ;;
+            setup_saved)     echo "Настройки сохранены!" ;;
+            uninstall_title) echo "УДАЛЕНИЕ СКРИПТА" ;;
+            uninstall_warn)  echo "Будет удалено: /usr/bin/yt  /usr/bin/yt-clean" ;;
+            uninstall_conf)  echo "Конфиг ~/.config/yt/ тоже будет удалён." ;;
+            uninstall_note)  echo "Ваши папки с музыкой / видео / превью НЕ удаляются." ;;
+            uninstall_ask)   echo "Подтвердить? [y/N]:" ;;
+            uninstall_done)  echo "Скрипт удалён." ;;
+            uninstall_abort) echo "Отменено. Скрипт остался." ;;
+            uninstall_sudo)  echo "Нужен sudo для удаления из /usr/bin/." ;;
+        esac ;;
+
+# ─── UKRAINIAN ────────────────────────────────
+        uk) case "$key" in
+            title)           echo "YT DOWNLOADER" ;;
+            by)              echo "github.com/07NORTH07" ;;
+            menu_mp3)        echo "Завантажити аудіо" ;;
+            menu_mp4)        echo "Завантажити відео" ;;
+            menu_thumb)      echo "Завантажити прев'ю" ;;
+            menu_settings)   echo "Налаштування" ;;
+            menu_quit)       echo "Вийти" ;;
+            menu_uninstall)  echo "Видалити скрипт" ;;
+            enter_url)       echo "Вставте посилання (q — скасувати):" ;;
+            saved_to)        echo "Збережено до:" ;;
+            choose)          echo "Оберіть (q — скасувати):" ;;
+            audio_title)     echo "ФОРМАТ АУДІО" ;;
+            af_mp3_cover)    echo "MP3   + обкладинка" ;;
+            af_mp3_no)       echo "MP3   — без обкладинки" ;;
+            af_wav)          echo "WAV   (без втрат, DAW)" ;;
+            af_flac)         echo "FLAC  (без втрат, DAW)" ;;
+            af_aiff)         echo "AIFF  (без втрат, DAW)" ;;
+            af_m4a)          echo "M4A   (AAC, Apple)" ;;
+            af_opus)         echo "OPUS  (малий розмір)" ;;
+            video_title)     echo "ФОРМАТ ВІДЕО" ;;
+            vf_mp4)          echo "MP4   (універсальний)" ;;
+            vf_mkv)          echo "MKV   (найкраща якість)" ;;
+            vf_webm)         echo "WEBM  (веб / VP9)" ;;
+            vq_title)        echo "ЯКІСТЬ ВІДЕО" ;;
+            vq_144)          echo "144p  — мінімум" ;;
+            vq_360)          echo "360p  — швидко" ;;
+            vq_480)          echo "480p  — SD" ;;
+            vq_720)          echo "720p  — HD" ;;
+            vq_1080)         echo "1080p — Full HD (рек.)" ;;
+            vq_1440)         echo "1440p — 2K" ;;
+            vq_2160)         echo "2160p — 4K" ;;
+            vq_max)          echo "Макс  — найкраще доступне" ;;
+            thumb_title)     echo "ТИП ПРЕВ'Ю" ;;
+            thumb_square)    echo "Квадратне  500×500" ;;
+            thumb_hd)        echo "Оригінал   16:9" ;;
+            thumb_both)      echo "Обидва варіанти" ;;
+            settings_title)  echo "Налаштування" ;;
+            set_lang)        echo "Змінити мову" ;;
+            set_music)       echo "Папка музики" ;;
+            set_video)       echo "Папка відео" ;;
+            set_thumb)       echo "Папка прев'ю" ;;
+            back)            echo "<- Назад  [b/q]" ;;
+            done_ok)         echo "Готово!" ;;
+            cancel)          echo "Скасовано." ;;
+            err_url)         echo "Помилка: посилання не вказане." ;;
+            err_dep)         echo "Не знайдено:" ;;
+            press_key)       echo "Натисніть будь-яку клавішу..." ;;
+            folder_hint)     echo "q — залишити поточну" ;;
+            current)         echo "поточна" ;;
+            setup_title)     echo "ПЕРШИЙ ЗАПУСК" ;;
+            setup_lang)      echo "Select language / Выберите язык / Оберіть мову:" ;;
+            setup_music)     echo "Папка для музики [Enter = за замовч., q = пропустити]:" ;;
+            setup_video)     echo "Папка для відео [Enter = за замовч., q = пропустити]:" ;;
+            setup_thumb)     echo "Папка для прев'ю [Enter = за замовч., q = пропустити]:" ;;
+            setup_saved)     echo "Налаштування збережено!" ;;
+            uninstall_title) echo "ВИДАЛЕННЯ СКРИПТУ" ;;
+            uninstall_warn)  echo "Буде видалено: /usr/bin/yt  /usr/bin/yt-clean" ;;
+            uninstall_conf)  echo "Конфіг ~/.config/yt/ також буде видалено." ;;
+            uninstall_note)  echo "Ваші папки з музикою / відео / прев'ю НЕ видаляються." ;;
+            uninstall_ask)   echo "Підтвердити? [y/N]:" ;;
+            uninstall_done)  echo "Скрипт видалено." ;;
+            uninstall_abort) echo "Скасовано. Скрипт залишився." ;;
+            uninstall_sudo)  echo "Потрібен sudo для видалення з /usr/bin/." ;;
+        esac ;;
+    esac
+}
+
+# ══════════════════════════════════════════════
+#  UTILITIES
+# ══════════════════════════════════════════════
+save_config() {
+    mkdir -p "$CONFIG_DIR"
+    cat > "$CONFIG_FILE" <<EOF
+UI_LANG="$UI_LANG"
+MUSIC_DIR="$MUSIC_DIR"
+VIDEO_DIR="$VIDEO_DIR"
+THUMB_DIR="$THUMB_DIR"
+EOF
+}
+
+# check that required tools are installed
+check_deps() {
+    local missing=()
+    for cmd in yt-dlp ffmpeg python3; do
+        command -v "$cmd" &>/dev/null || missing+=("$cmd")
+    done
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        echo -e "${C_RED}$(t err_dep) ${missing[*]}${C_RESET}"
+        echo -e "${C_GRAY}Arch: sudo pacman -S yt-dlp ffmpeg python${C_RESET}"
+        exit 1
+    fi
+}
+
+# recalculate box width based on current terminal size
+update_width() {
+    TERM_W=$(tput cols 2>/dev/null || echo 80)
+    if [[ "$TERM_W" -lt 50 ]]; then
+        USE_BOX=false; W=0
+    else
+        USE_BOX=true
+        W=$(( TERM_W - 6 ))
+        [[ $W -gt 70 ]] && W=70
+    fi
+}
+
+# draw top border, optionally with a centered label
+box_top() {
+    $USE_BOX || return
+    local label="$1"
+    if [[ -n "$label" ]]; then
+        local llen; llen=$(printf '%s' "$label" | wc -m)
+        local total=$(( W - llen - 2 ))
+        local pad=$(( total / 2 )); [[ $pad -lt 1 ]] && pad=1
+        printf "${C_GRAY}%s" "$CH_TL"
+        printf -- "${CH_H}%.0s" $(seq 1 $pad)
+        printf "${C_RESET}${C_WHITE} %s ${C_GRAY}" "$label"
+        local right=$(( total - pad )); [[ $right -lt 1 ]] && right=1
+        printf -- "${CH_H}%.0s" $(seq 1 $right)
+        printf "%s${C_RESET}\n" "$CH_TR"
+    else
+        printf "${C_GRAY}%s" "$CH_TL"
+        printf -- "${CH_H}%.0s" $(seq 1 $W)
+        printf "%s${C_RESET}\n" "$CH_TR"
+    fi
+}
+
+# draw a content line inside the box
+box_line() {
+    local content="$1"
+    if ! $USE_BOX; then echo -e "$content"; return; fi
+    local stripped; stripped=$(printf '%b' "$content" | sed 's/\x1b\[[0-9;]*m//g')
+    local len=${#stripped}
+    local pad=$(( W - len - 1 )); [[ $pad -lt 0 ]] && pad=0
+    printf "${C_GRAY}%s${C_RESET} %b%*s${C_GRAY}%s${C_RESET}\n" "$CH_V" "$content" "$pad" "" "$CH_V"
+}
+
+# draw a horizontal separator inside the box
+box_sep() {
+    if ! $USE_BOX; then
+        printf "${C_GRAY}"; printf -- "${CH_H}%.0s" $(seq 1 30); printf "${C_RESET}\n"; return
+    fi
+    printf "${C_GRAY}%s" "$CH_LJ"
+    printf -- "${CH_H}%.0s" $(seq 1 $W)
+    printf "%s${C_RESET}\n" "$CH_RJ"
+}
+
+# draw bottom border
+box_bot() {
+    $USE_BOX || return
+    printf "${C_GRAY}%s" "$CH_BL"
+    printf -- "${CH_H}%.0s" $(seq 1 $W)
+    printf "%s${C_RESET}\n" "$CH_BR"
+}
+
+# print the app header
+print_header() {
+    update_width; echo
+    box_top "$(t title)"
+    box_line "  ${C_GRAY}$(t by)${C_RESET}"
+    box_bot; echo
+}
+
+# ══════════════════════════════════════════════
+#  LANGUAGE SELECTION
+# ══════════════════════════════════════════════
+setup_language() {
+    clear; update_width; echo
+    box_top "$(t setup_title)"
+    box_line ""
+    box_line "  ${C_WHITE}$(t setup_lang)${C_RESET}"
+    box_line ""
+    box_line "  ${C_YELLOW}[1]${C_RESET}  English"
+    box_line "  ${C_BLUE}[2]${C_RESET}  Русский"
+    box_line "  ${C_GREEN}[3]${C_RESET}  Українська"
+    box_line ""
+    box_bot; echo
+    read -rp "  -> " choice
+    case "$choice" in
+        1) UI_LANG="en" ;;
+        2) UI_LANG="ru" ;;
+        3) UI_LANG="uk" ;;
+        *) UI_LANG="en" ;;
+    esac
+}
+
+# ══════════════════════════════════════════════
+#  DIRECTORY SETUP (language already chosen)
+# ══════════════════════════════════════════════
+setup_dirs() {
+    echo
+    box_top
+    box_line "  ${C_GRAY}$(t setup_music)${C_RESET}"
+    box_line "  ${C_DIM}$MUSIC_DIR${C_RESET}"
+    box_bot
+    read -rp "  -> " input
+    [[ "$input" != "q" && "$input" != "Q" && -n "$input" ]] && MUSIC_DIR="$input"
+
+    echo
+    box_top
+    box_line "  ${C_GRAY}$(t setup_video)${C_RESET}"
+    box_line "  ${C_DIM}$VIDEO_DIR${C_RESET}"
+    box_bot
+    read -rp "  -> " input
+    [[ "$input" != "q" && "$input" != "Q" && -n "$input" ]] && VIDEO_DIR="$input"
+
+    echo
+    box_top
+    box_line "  ${C_GRAY}$(t setup_thumb)${C_RESET}"
+    box_line "  ${C_DIM}$THUMB_DIR${C_RESET}"
+    box_bot
+    read -rp "  -> " input
+    [[ "$input" != "q" && "$input" != "Q" && -n "$input" ]] && THUMB_DIR="$input"
+
+    save_config
+    mkdir -p "$MUSIC_DIR" "$VIDEO_DIR" "$THUMB_DIR"
+    echo
+    echo -e "  ${C_GREEN}v $(t setup_saved)${C_RESET}"
+    echo -e "  ${C_GRAY}~/.config/yt/config${C_RESET}"
+    sleep 1
+}
+
+first_run() { setup_language; setup_dirs; }
+
+# ══════════════════════════════════════════════
+#  SETTINGS MENU
+# ══════════════════════════════════════════════
+menu_settings() {
+    while true; do
+        clear; print_header
+        box_top "$(t settings_title)"
+        box_line ""
+        box_line "  ${C_YELLOW}[1]${C_RESET}  $(t set_lang)   ${C_GRAY}[$UI_LANG]${C_RESET}"
+        box_line "  ${C_YELLOW}[2]${C_RESET}  $(t set_music)"
+        box_line "  ${C_GRAY}      $MUSIC_DIR${C_RESET}"
+        box_line "  ${C_YELLOW}[3]${C_RESET}  $(t set_video)"
+        box_line "  ${C_GRAY}      $VIDEO_DIR${C_RESET}"
+        box_line "  ${C_YELLOW}[4]${C_RESET}  $(t set_thumb)"
+        box_line "  ${C_GRAY}      $THUMB_DIR${C_RESET}"
+        box_sep
+        box_line "  ${C_GRAY}[b/q]${C_RESET}  $(t back)"
+        box_line ""
+        box_bot; echo
+        read -rp "  -> " choice
+        case "$choice" in
+            1) setup_language; save_config ;;
+            2)
+                echo -e "\n  ${C_GRAY}$(t set_music) — $(t folder_hint)${C_RESET}"
+                echo -e "  ${C_DIM}$(t current): $MUSIC_DIR${C_RESET}"
+                read -rp "  -> " input
+                if [[ "$input" == "q" || "$input" == "Q" ]]; then
+                    echo -e "  ${C_GRAY}$(t cancel)${C_RESET}"
+                elif [[ -n "$input" ]]; then
+                    MUSIC_DIR="$input"; mkdir -p "$MUSIC_DIR"; save_config
+                fi ;;
+            3)
+                echo -e "\n  ${C_GRAY}$(t set_video) — $(t folder_hint)${C_RESET}"
+                echo -e "  ${C_DIM}$(t current): $VIDEO_DIR${C_RESET}"
+                read -rp "  -> " input
+                if [[ "$input" == "q" || "$input" == "Q" ]]; then
+                    echo -e "  ${C_GRAY}$(t cancel)${C_RESET}"
+                elif [[ -n "$input" ]]; then
+                    VIDEO_DIR="$input"; mkdir -p "$VIDEO_DIR"; save_config
+                fi ;;
+            4)
+                echo -e "\n  ${C_GRAY}$(t set_thumb) — $(t folder_hint)${C_RESET}"
+                echo -e "  ${C_DIM}$(t current): $THUMB_DIR${C_RESET}"
+                read -rp "  -> " input
+                if [[ "$input" == "q" || "$input" == "Q" ]]; then
+                    echo -e "  ${C_GRAY}$(t cancel)${C_RESET}"
+                elif [[ -n "$input" ]]; then
+                    THUMB_DIR="$input"; mkdir -p "$THUMB_DIR"; save_config
+                fi ;;
+            b|B|q|Q) break ;;
+        esac
+    done
+}
+
+# ══════════════════════════════════════════════
+#  UNINSTALL
+# ══════════════════════════════════════════════
+do_uninstall() {
+    clear; print_header
+    box_top "$(t uninstall_title)"
+    box_line ""
+    box_line "  ${C_RED}$(t uninstall_warn)${C_RESET}"
+    box_line "  ${C_RED}$(t uninstall_conf)${C_RESET}"
+    box_line ""
+    box_line "  ${C_GREEN}$(t uninstall_note)${C_RESET}"
+    box_line ""
+    box_sep
+    box_line "  ${C_GRAY}$(t uninstall_ask)${C_RESET}"
+    box_line ""
+    box_bot; echo
+    read -rp "  -> " confirm
+    if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
+        if ! sudo -n true 2>/dev/null; then
+            echo -e "  ${C_YELLOW}$(t uninstall_sudo)${C_RESET}"; echo
+        fi
+        sudo rm -f /usr/bin/yt /usr/bin/yt-clean 2>/dev/null
+        rm -rf "$CONFIG_DIR" 2>/dev/null
+        echo; echo -e "  ${C_GREEN}v $(t uninstall_done)${C_RESET}"; echo
+        exit 0
+    else
+        echo; echo -e "  ${C_GRAY}$(t uninstall_abort)${C_RESET}"; echo; sleep 1
+    fi
+}
+
+# ══════════════════════════════════════════════
+#  AUDIO DOWNLOAD
+# ══════════════════════════════════════════════
+do_mp3() {
+    local url="$1"
+
+    # ── format selection ──
+    local fmt_choice
+    echo
+    box_top "$(t audio_title)"
+    box_line ""
+    box_line "  ${C_WHITE}$(t choose)${C_RESET}"
+    box_line ""
+    box_line "  ${C_GREEN}[1]${C_RESET}  $(t af_mp3_cover)"
+    box_line "  ${C_GREEN}[2]${C_RESET}  $(t af_mp3_no)"
+    box_line "  ${C_CYAN}[3]${C_RESET}  $(t af_wav)"
+    box_line "  ${C_CYAN}[4]${C_RESET}  $(t af_flac)"
+    box_line "  ${C_CYAN}[5]${C_RESET}  $(t af_aiff)"
+    box_line "  ${C_YELLOW}[6]${C_RESET}  $(t af_m4a)"
+    box_line "  ${C_YELLOW}[7]${C_RESET}  $(t af_opus)"
+    box_line ""
+    box_bot
+    read -rp "  -> " fmt_choice
+    if [[ "$fmt_choice" == "q" || "$fmt_choice" == "Q" ]]; then
+        echo -e "  ${C_GRAY}$(t cancel)${C_RESET}"; return
+    fi
+
+    # ── URL input ──
+    if [[ -z "$url" ]]; then
+        echo
+        echo -e "  ${C_GRAY}$(t enter_url)${C_RESET}"
+        read -rp "  -> " url
+        if [[ "$url" == "q" || "$url" == "Q" ]]; then
+            echo -e "  ${C_GRAY}$(t cancel)${C_RESET}"; return
+        fi
+    fi
+    [[ -z "$url" ]] && echo -e "  ${C_RED}$(t err_url)${C_RESET}" && return
+
+    echo; echo -e "  ${C_GRAY}$(t saved_to) ${C_BLUE}$MUSIC_DIR${C_RESET}"; echo
+    mkdir -p "$MUSIC_DIR"; cd "$MUSIC_DIR" || return
+
+    case "$fmt_choice" in
+        1)  # MP3 with embedded 500x500 cover art
+            yt-dlp \
+                --no-overwrites \
+                -x --audio-format mp3 --audio-quality 0 \
+                --embed-thumbnail --add-metadata \
+                --windows-filenames \
+                --convert-thumbnails jpg \
+                --ppa "ThumbnailsConvertor+ffmpeg:-vf crop='ih:ih',scale=500:500" \
+                --exec "/usr/bin/yt-clean {}" \
+                -o "%(title)s.%(ext)s" \
+                "$url"
+            ;;
+        2)  # MP3 without cover art
+            yt-dlp \
+                --no-overwrites \
+                -x --audio-format mp3 --audio-quality 0 \
+                --add-metadata \
+                --windows-filenames \
+                --exec "/usr/bin/yt-clean {}" \
+                -o "%(title)s.%(ext)s" \
+                "$url"
+            ;;
+        3)  # WAV lossless
+            yt-dlp \
+                --no-overwrites \
+                -x --audio-format wav \
+                --windows-filenames \
+                -o "%(title)s.%(ext)s" \
+                "$url"
+            ;;
+        4)  # FLAC lossless
+            yt-dlp \
+                --no-overwrites \
+                -x --audio-format flac \
+                --add-metadata \
+                --windows-filenames \
+                -o "%(title)s.%(ext)s" \
+                "$url"
+            ;;
+        5)  # AIFF — yt-dlp doesn't support aiff natively;
+            # download as WAV then convert via ffmpeg
+            yt-dlp \
+                --no-overwrites \
+                -x --audio-format wav \
+                --windows-filenames \
+                -o "%(title)s.%(ext)s" \
+                "$url"
+            for f in *.wav; do
+                [[ -f "$f" ]] || continue
+                base="${f%.wav}"
+                ffmpeg -y -i "$f" -c:a pcm_s16be -f aiff "${base}.aiff" 2>/dev/null \
+                    && rm -f "$f"
+            done
+            ;;
+        6)  # M4A (AAC container)
+            yt-dlp \
+                --no-overwrites \
+                -x --audio-format m4a \
+                --add-metadata \
+                --windows-filenames \
+                -o "%(title)s.%(ext)s" \
+                "$url"
+            ;;
+        7)  # OPUS (small file size)
+            yt-dlp \
+                --no-overwrites \
+                -x --audio-format opus \
+                --add-metadata \
+                --windows-filenames \
+                -o "%(title)s.%(ext)s" \
+                "$url"
+            ;;
+        *)
+            echo -e "  ${C_RED}$(t cancel)${C_RESET}"; return ;;
+    esac
+
+    echo; echo -e "  ${C_GREEN}v $(t done_ok)${C_RESET}"
+    echo -e "  ${C_GRAY}$(t press_key)${C_RESET}"; read -rsn1
+}
+
+# ══════════════════════════════════════════════
+#  VIDEO DOWNLOAD
+# ══════════════════════════════════════════════
+do_mp4() {
+    local cli_fmt="$1"
+    local cli_url="$2"
+
+    # ── container format selection ──
+    local container
+    echo
+    box_top "$(t video_title)"
+    box_line ""
+    box_line "  ${C_WHITE}$(t choose)${C_RESET}"
+    box_line ""
+    box_line "  ${C_GREEN}[1]${C_RESET}  $(t vf_mp4)"
+    box_line "  ${C_BLUE}[2]${C_RESET}  $(t vf_mkv)"
+    box_line "  ${C_YELLOW}[3]${C_RESET}  $(t vf_webm)"
+    box_line ""
+    box_bot
+    read -rp "  -> " container
+    if [[ "$container" == "q" || "$container" == "Q" ]]; then
+        echo -e "  ${C_GRAY}$(t cancel)${C_RESET}"; return
+    fi
+    local merge_fmt
+    case "$container" in
+        1) merge_fmt="mp4" ;;
+        2) merge_fmt="mkv" ;;
+        3) merge_fmt="webm" ;;
+        *) echo -e "  ${C_RED}$(t cancel)${C_RESET}"; return ;;
+    esac
+
+    # ── quality selection ──
+    local quality
+    if [[ -z "$cli_fmt" ]]; then
+        echo
+        box_top "$(t vq_title)"
+        box_line ""
+        box_line "  ${C_WHITE}$(t choose)${C_RESET}"
+        box_line ""
+        box_line "  ${C_GRAY}[1]${C_RESET}  $(t vq_144)"
+        box_line "  ${C_GRAY}[2]${C_RESET}  $(t vq_360)"
+        box_line "  ${C_YELLOW}[3]${C_RESET}  $(t vq_480)"
+        box_line "  ${C_YELLOW}[4]${C_RESET}  $(t vq_720)"
+        box_line "  ${C_GREEN}[5]${C_RESET}  $(t vq_1080)"
+        box_line "  ${C_BLUE}[6]${C_RESET}  $(t vq_1440)"
+        box_line "  ${C_CYAN}[7]${C_RESET}  $(t vq_2160)"
+        box_line "  ${C_RED}[8]${C_RESET}  $(t vq_max)"
+        box_line ""
+        box_bot
+        read -rp "  -> " quality
+        if [[ "$quality" == "q" || "$quality" == "Q" ]]; then
+            echo -e "  ${C_GRAY}$(t cancel)${C_RESET}"; return
+        fi
+    else
+        # legacy CLI flags: -l / -m / -h
+        case "$cli_fmt" in
+            -l) quality=2 ;;
+            -m) quality=5 ;;
+            -h) quality=8 ;;
+            *)  quality=5 ;;
+        esac
+    fi
+
+    # map quality choice to yt-dlp format selector
+    local fmt
+    case "$quality" in
+        1) fmt="bestvideo[height<=144]+bestaudio/best[height<=144]" ;;
+        2) fmt="bestvideo[height<=360]+bestaudio/best[height<=360]" ;;
+        3) fmt="bestvideo[height<=480]+bestaudio/best[height<=480]" ;;
+        4) fmt="bestvideo[height<=720]+bestaudio/best[height<=720]" ;;
+        5) fmt="bestvideo[height<=1080]+bestaudio/best[height<=1080]" ;;
+        6) fmt="bestvideo[height<=1440]+bestaudio/best[height<=1440]" ;;
+        7) fmt="bestvideo[height<=2160]+bestaudio/best[height<=2160]" ;;
+        8) fmt="bestvideo+bestaudio/best" ;;
+        *) echo -e "  ${C_RED}$(t cancel)${C_RESET}"; return ;;
+    esac
+
+    # ── URL input ──
+    local url="$cli_url"
+    if [[ -z "$url" ]]; then
+        echo; echo -e "  ${C_GRAY}$(t enter_url)${C_RESET}"
+        read -rp "  -> " url
+        if [[ "$url" == "q" || "$url" == "Q" ]]; then
+            echo -e "  ${C_GRAY}$(t cancel)${C_RESET}"; return
+        fi
+    fi
+    [[ -z "$url" ]] && echo -e "  ${C_RED}$(t err_url)${C_RESET}" && return
+
+    echo; echo -e "  ${C_GRAY}$(t saved_to) ${C_BLUE}$VIDEO_DIR${C_RESET}"; echo
+    mkdir -p "$VIDEO_DIR"; cd "$VIDEO_DIR" || return
+
+    local out="%(title)s_%(height)sp.%(ext)s"
+    local common="--no-overwrites --embed-thumbnail --add-metadata --windows-filenames"
+
+    # WEBM doesn't support --embed-thumbnail the same way MP4 does,
+    # so we drop that flag to avoid ffmpeg errors
+    if [[ "$merge_fmt" == "webm" ]]; then
+        common="--no-overwrites --add-metadata --windows-filenames"
+    fi
+
+    yt-dlp $common \
+        --merge-output-format "$merge_fmt" \
+        -f "$fmt" \
+        -o "$out" \
+        "$url"
+
+    echo; echo -e "  ${C_GREEN}v $(t done_ok)${C_RESET}"
+    echo -e "  ${C_GRAY}$(t press_key)${C_RESET}"; read -rsn1
+}
+
+# ══════════════════════════════════════════════
+#  THUMBNAIL DOWNLOAD
+# ══════════════════════════════════════════════
+do_thumb() {
+    local url="$1"
+    local mode
+
+    if [[ -z "$url" ]]; then
+        echo
+        box_top "$(t thumb_title)"
+        box_line ""
+        box_line "  ${C_WHITE}$(t choose)${C_RESET}"
+        box_line ""
+        box_line "  ${C_BLUE}[1]${C_RESET}  $(t thumb_square)"
+        box_line "  ${C_BLUE}[2]${C_RESET}  $(t thumb_hd)"
+        box_line "  ${C_GREEN}[3]${C_RESET}  $(t thumb_both)"
+        box_line ""
+        box_bot
+        read -rp "  -> " mode
+        if [[ "$mode" == "q" || "$mode" == "Q" ]]; then
+            echo -e "  ${C_GRAY}$(t cancel)${C_RESET}"; return
+        fi
+
+        echo; echo -e "  ${C_GRAY}$(t enter_url)${C_RESET}"
+        read -rp "  -> " url
+        if [[ "$url" == "q" || "$url" == "Q" ]]; then
+            echo -e "  ${C_GRAY}$(t cancel)${C_RESET}"; return
+        fi
+    else
+        mode="3"
+    fi
+
+    [[ -z "$url" ]] && echo -e "  ${C_RED}$(t err_url)${C_RESET}" && return
+
+    echo; echo -e "  ${C_GRAY}$(t saved_to) ${C_BLUE}$THUMB_DIR${C_RESET}"; echo
+    mkdir -p "$THUMB_DIR"; cd "$THUMB_DIR" || return
+
+    case "$mode" in
+        1)  # square 500x500 crop
+            yt-dlp --write-thumbnail --skip-download \
+                --convert-thumbnails jpg \
+                --ppa "ThumbnailsConvertor+ffmpeg:-vf crop='ih:ih',scale=500:500" \
+                -o "%(title)s_square.%(ext)s" "$url"
+            ;;
+        2)  # original 16:9
+            yt-dlp --write-thumbnail --skip-download \
+                --convert-thumbnails jpg \
+                -o "%(title)s_thumb.%(ext)s" "$url"
+            ;;
+        *)  # both variants
+            yt-dlp --write-thumbnail --skip-download \
+                --convert-thumbnails jpg \
+                --ppa "ThumbnailsConvertor+ffmpeg:-vf crop='ih:ih',scale=500:500" \
+                -o "%(title)s_square.%(ext)s" "$url"
+            yt-dlp --write-thumbnail --skip-download \
+                --convert-thumbnails jpg \
+                -o "%(title)s_thumb.%(ext)s" "$url"
+            ;;
+    esac
+
+    echo; echo -e "  ${C_GREEN}v $(t done_ok)${C_RESET}"
+    echo -e "  ${C_GRAY}$(t press_key)${C_RESET}"; read -rsn1
+}
+
+# ══════════════════════════════════════════════
+#  MAIN MENU
+# ══════════════════════════════════════════════
+main_menu() {
+    while true; do
+        clear; print_header
+        box_top
+        box_line "  ${C_GREEN}[1]${C_RESET}  $(t menu_mp3)"
+        box_line "  ${C_BLUE}[2]${C_RESET}  $(t menu_mp4)"
+        box_line "  ${C_BLUE}[3]${C_RESET}  $(t menu_thumb)"
+        box_sep
+        box_line "  ${C_YELLOW}[4]${C_RESET}  $(t menu_settings)"
+        box_sep
+        box_line "  ${C_RED}[5]${C_RESET}  $(t menu_uninstall)"
+        box_sep
+        box_line "  ${C_GRAY}[q]${C_RESET}  $(t menu_quit)"
+        box_bot; echo
+
+        read -rp "  -> " choice
+        case "$choice" in
+            1) do_mp3 ;;
+            2) do_mp4 ;;
+            3) do_thumb ;;
+            4) menu_settings ;;
+            5) do_uninstall ;;
+            q|Q) echo; exit 0 ;;
+        esac
+    done
+}
+
+# ══════════════════════════════════════════════
+#  ENTRY POINT
+# ══════════════════════════════════════════════
+check_deps
+
+# run first-time setup if no config exists yet
+if [[ ! -f "$CONFIG_FILE" ]]; then
+    clear; first_run
+fi
+
+case "$1" in
+    mp3)       do_mp3 "$2" ;;
+    mp4)       do_mp4 "$2" "$3" ;;
+    thumb)     do_thumb "$2" ;;
+    uninstall) do_uninstall ;;
+    "")        main_menu ;;
+    *)
+        echo -e "${C_GRAY}Usage:${C_RESET}"
+        echo -e "  yt"
+        echo -e "  yt mp3"
+        echo -e "  yt mp4"
+        echo -e "  yt thumb <url>"
+        echo -e "  yt uninstall"
+        ;;
+esac
