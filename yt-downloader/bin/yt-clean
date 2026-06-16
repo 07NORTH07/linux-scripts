@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 
-# yt-clean — обробка метаданих та імен файлів після завантаження
+# yt-clean — processing of metadata and file names after downloading
 # github.com/07NORTH07
 
 import sys
@@ -15,15 +15,12 @@ file_path = sys.argv[1]
 dir_name = os.path.dirname(file_path)
 base_name, ext = os.path.splitext(os.path.basename(file_path))
 
-# Очистити теги та видалити tracknumber
 try:
     audio = EasyID3(file_path)
 
-    # Видалити номер треку (yt-dlp завжди пише 63 — артефакт)
     if 'tracknumber' in audio:
         del audio['tracknumber']
 
-    # Очистити title і artist від стилізованих Unicode-шрифтів
     for tag in ['title', 'artist']:
         if tag in audio:
             audio[tag] = [unidecode(audio[tag][0])]
@@ -32,7 +29,6 @@ try:
 except Exception:
     pass
 
-# Перейменувати файл тільки якщо в імені немає кирилиці
 def has_cyrillic(text):
     return any('\u0400' <= ch <= '\u04FF' for ch in text)
 
