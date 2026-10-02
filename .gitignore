@@ -1,0 +1,12 @@
+*.csv
+*.log
+_download.log
+_errors.log
+_not_found.txt
+*.zip
+*.mp3
+*.flac
+*.m4a
+*.opus
+*.wav
+.env

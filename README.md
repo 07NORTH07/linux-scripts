@@ -9,3 +9,4 @@ A collection of Linux shell utilities.
 | Script | Description |
 |--------|-------------|
 | [yt-downloader](./yt-downloader/) | Console YouTube downloader — audio, video, thumbnails |
+| [spotify-downloader](./spotify-downloader/) | Console Spotify playlist (CSV) downloader — tagged audio with covers |

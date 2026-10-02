@@ -1,0 +1,925 @@
+#!/usr/bin/env bash
+# ─────────────────────────────────────────────
+#  SPT — Spotify playlist (CSV) downloader
+#  yt-dlp + ffmpeg + python3 (mutagen for tags)
+#  github.com/07NORTH07
+# ─────────────────────────────────────────────
+
+# ── UTF-8 locale fix for C.UTF-8 systems ──
+if locale -a 2>/dev/null | grep -qi '^C\.utf8$\|^C\.UTF-8$'; then
+    export LC_ALL=C.UTF-8
+    export LANG=C.UTF-8
+fi
+
+# ── detect whether the terminal supports Unicode box-drawing chars ──
+_charmap="${LC_ALL:-${LC_CTYPE:-$LANG}}"
+case "$_charmap" in
+    *UTF-8*|*utf8*|*UTF8*) UNICODE_OK=true ;;
+    *)                      UNICODE_OK=false ;;
+esac
+
+if $UNICODE_OK; then
+    CH_TL='┌'; CH_TR='┐'; CH_BL='└'; CH_BR='┘'
+    CH_H='─';  CH_V='│'
+    CH_LJ='├'; CH_RJ='┤'
+else
+    CH_TL='+'; CH_TR='+'; CH_BL='+'; CH_BR='+'
+    CH_H='-';  CH_V='|'
+    CH_LJ='+'; CH_RJ='+'
+fi
+
+# ── config paths and defaults ──
+CONFIG_DIR="$HOME/.config/spt"
+CONFIG_FILE="$CONFIG_DIR/config"
+
+SPT_VERSION="1.0.0"
+
+# default folders follow the system's user directories (they can be localized,
+# e.g. ~/Загрузки, ~/Музыка); fall back to English names if xdg-user-dir is
+# missing or the directory is not configured (it then returns $HOME)
+xdg_dir() {
+    local d
+    d="$(xdg-user-dir "$1" 2>/dev/null)"
+    [[ -n "$d" && "$d" != "$HOME" ]] && echo "$d" || echo "$HOME/$2"
+}
+MUSIC_DIR="$(xdg_dir MUSIC Music)/spotify"
+CSV_DIR="$(xdg_dir DOWNLOAD Downloads)"
+TOLERANCE=8          # allowed difference in seconds between CSV and YouTube duration
+WRITE_GENRE="yes"    # write genres from the CSV into tags (yes/no)
+UI_LANG="en"
+
+if [[ -f "$CONFIG_FILE" ]]; then
+    source "$CONFIG_FILE"
+fi
+
+# ── terminal color codes ──
+C_GREEN='\033[0;32m'
+C_BLUE='\033[0;34m'
+C_YELLOW='\033[0;33m'
+C_RED='\033[0;31m'
+C_GRAY='\033[0;90m'
+C_WHITE='\033[0;97m'
+C_DIM='\033[2m'
+C_CYAN='\033[0;36m'
+C_RESET='\033[0m'
+
+# ══════════════════════════════════════════════
+#  TRANSLATIONS
+# ══════════════════════════════════════════════
+t() {
+    local key="$1"
+    case "$UI_LANG" in
+
+# ─── ENGLISH ──────────────────────────────────
+        en) case "$key" in
+            title)         echo "SPT" ;;
+            by)            echo "Spotify playlist (CSV) -> music" ;;
+            menu_dl)       echo "Download playlist (CSV)" ;;
+            menu_prev)     echo "Preview matches (no download)" ;;
+            menu_settings) echo "Settings" ;;
+            menu_uninstall) echo "Uninstall script" ;;
+            menu_quit)     echo "Quit" ;;
+            csv_title)     echo "CHOOSE CSV" ;;
+            csv_hint)      echo "Number from the list or a path to .csv (q — cancel):" ;;
+            csv_none)      echo "No .csv files in" ;;
+            csv_bad)       echo "File not found:" ;;
+            audio_title)   echo "AUDIO FORMAT" ;;
+            choose)        echo "Choose (q — cancel):" ;;
+            af_mp3_cover)  echo "MP3   + cover art" ;;
+            af_mp3_no)     echo "MP3   — no cover" ;;
+            af_flac)       echo "FLAC  (lossless container)" ;;
+            af_m4a)        echo "M4A   (AAC, Apple)" ;;
+            af_opus)       echo "OPUS  (small size)" ;;
+            af_wav)        echo "WAV   (DAW)" ;;
+            saved_to)      echo "Saved to:" ;;
+            dry_note)      echo "Dry run: nothing is downloaded." ;;
+            searching)     echo "searching..." ;;
+            st_ok)         echo "OK" ;;
+            st_unver)      echo "OK (duration not verified)" ;;
+            st_nf)         echo "NOT FOUND" ;;
+            st_skip)       echo "exists, skipped" ;;
+            st_fail)       echo "FAILED" ;;
+            st_match)      echo "match" ;;
+            sum_ok)        echo "Downloaded / matched:" ;;
+            sum_skip)      echo "Skipped (exist):" ;;
+            sum_nf)        echo "Not found:" ;;
+            sum_fail)      echo "Failed:" ;;
+            nf_log)        echo "Unmatched list saved to:" ;;
+            run_log)        echo "Full log:" ;;
+            stray)          echo "Leftovers of interrupted downloads (safe to delete):" ;;
+            settings_title) echo "Settings" ;;
+            set_lang)      echo "Change language" ;;
+            set_music)     echo "Music folder" ;;
+            set_csv)       echo "CSV folder" ;;
+            set_tol)       echo "Duration tolerance, sec" ;;
+            back)          echo "Back" ;;
+            cancel)        echo "Cancelled." ;;
+            folder_hint)   echo "Enter/q — keep current" ;;
+            current)       echo "current" ;;
+            press_key)     echo "Press any key..." ;;
+            err_dep)       echo "Not found:" ;;
+            uninstall_title) echo "UNINSTALL" ;;
+            uninstall_warn)  echo "Will remove:" ;;
+            uninstall_conf)  echo "Config will also be removed:" ;;
+            uninstall_note)  echo "Your music folders and CSV files will NOT be deleted." ;;
+            uninstall_ask)   echo "Confirm? [y/N]:" ;;
+            uninstall_done)  echo "Script removed." ;;
+            uninstall_abort) echo "Cancelled. Script is still here." ;;
+            uninstall_sudo)  echo "sudo is required to remove this file." ;;
+            setup_title)   echo "FIRST RUN" ;;
+            setup_lang)    echo "Select language / Выберите язык / Оберіть мову:" ;;
+            setup_saved)   echo "Settings saved!" ;;
+            menu_fix)      echo "Fix tags & covers (existing files)" ;;
+            set_genre)     echo "Write genre from CSV" ;;
+            fix_note)      echo "Fix mode: rewrites tags and cover of files already on disk." ;;
+            fix_ask)       echo "Rewrite tags and covers? [y/N]:" ;;
+            st_fixed)      echo "tags + cover updated" ;;
+            st_nocover)    echo "tags OK, cover not found" ;;
+            st_tagerr)     echo "downloaded, TAG ERROR" ;;
+            st_nodisk)     echo "no file on disk" ;;
+            sum_miss)      echo "Missing on disk:" ;;
+            err_log)       echo "Errors saved to:" ;;
+        esac ;;
+
+# ─── RUSSIAN ──────────────────────────────────
+        ru) case "$key" in
+            title)         echo "SPT" ;;
+            by)            echo "Плейлист Spotify (CSV) -> музыка" ;;
+            menu_dl)       echo "Скачать плейлист (CSV)" ;;
+            menu_prev)     echo "Предпросмотр совпадений (без загрузки)" ;;
+            menu_settings) echo "Настройки" ;;
+            menu_uninstall) echo "Удалить скрипт" ;;
+            menu_quit)     echo "Выйти" ;;
+            csv_title)     echo "ВЫБОР CSV" ;;
+            csv_hint)      echo "Номер из списка или путь к .csv (q — отмена):" ;;
+            csv_none)      echo "Нет .csv файлов в" ;;
+            csv_bad)       echo "Файл не найден:" ;;
+            audio_title)   echo "ФОРМАТ АУДИО" ;;
+            choose)        echo "Выберите (q — отмена):" ;;
+            af_mp3_cover)  echo "MP3   + обложка" ;;
+            af_mp3_no)     echo "MP3   — без обложки" ;;
+            af_flac)       echo "FLAC  (lossless-контейнер)" ;;
+            af_m4a)        echo "M4A   (AAC, Apple)" ;;
+            af_opus)       echo "OPUS  (маленький размер)" ;;
+            af_wav)        echo "WAV   (DAW)" ;;
+            saved_to)      echo "Сохранено в:" ;;
+            dry_note)      echo "Предпросмотр: ничего не скачивается." ;;
+            searching)     echo "поиск..." ;;
+            st_ok)         echo "OK" ;;
+            st_unver)      echo "OK (длительность не проверена)" ;;
+            st_nf)         echo "НЕ НАЙДЕНО" ;;
+            st_skip)       echo "уже есть, пропуск" ;;
+            st_fail)       echo "ОШИБКА" ;;
+            st_match)      echo "совпадение" ;;
+            sum_ok)        echo "Скачано / найдено:" ;;
+            sum_skip)      echo "Пропущено (уже есть):" ;;
+            sum_nf)        echo "Не найдено:" ;;
+            sum_fail)      echo "Ошибок:" ;;
+            nf_log)        echo "Список ненайденных сохранён в:" ;;
+            run_log)        echo "Полный лог:" ;;
+            stray)          echo "Остатки прерванных загрузок (можно удалить):" ;;
+            settings_title) echo "Настройки" ;;
+            set_lang)      echo "Изменить язык" ;;
+            set_music)     echo "Папка музыки" ;;
+            set_csv)       echo "Папка с CSV" ;;
+            set_tol)       echo "Допуск по длительности, сек" ;;
+            back)          echo "Назад" ;;
+            cancel)        echo "Отменено." ;;
+            folder_hint)   echo "Enter/q — оставить текущее" ;;
+            current)       echo "текущее" ;;
+            press_key)     echo "Нажмите любую клавишу..." ;;
+            err_dep)       echo "Не найдено:" ;;
+            uninstall_title) echo "УДАЛЕНИЕ СКРИПТА" ;;
+            uninstall_warn)  echo "Будет удалено:" ;;
+            uninstall_conf)  echo "Конфиг тоже будет удалён:" ;;
+            uninstall_note)  echo "Папки с музыкой и CSV-файлы НЕ удаляются." ;;
+            uninstall_ask)   echo "Подтвердить? [y/N]:" ;;
+            uninstall_done)  echo "Скрипт удалён." ;;
+            uninstall_abort) echo "Отменено. Скрипт остался." ;;
+            uninstall_sudo)  echo "Для удаления этого файла нужен sudo." ;;
+            setup_title)   echo "ПЕРВЫЙ ЗАПУСК" ;;
+            setup_lang)    echo "Select language / Выберите язык / Оберіть мову:" ;;
+            setup_saved)   echo "Настройки сохранены!" ;;
+            menu_fix)      echo "Исправить теги и обложки (уже скачанное)" ;;
+            set_genre)     echo "Писать жанр из CSV" ;;
+            fix_note)      echo "Режим исправления: перезаписывает теги и обложки у файлов на диске." ;;
+            fix_ask)       echo "Перезаписать теги и обложки? [y/N]:" ;;
+            st_fixed)      echo "теги + обложка обновлены" ;;
+            st_nocover)    echo "теги OK, обложка не найдена" ;;
+            st_tagerr)     echo "скачано, ОШИБКА ТЕГОВ" ;;
+            st_nodisk)     echo "файла нет на диске" ;;
+            sum_miss)      echo "Нет на диске:" ;;
+            err_log)       echo "Ошибки сохранены в:" ;;
+        esac ;;
+
+# ─── UKRAINIAN ────────────────────────────────
+        uk) case "$key" in
+            title)         echo "SPT" ;;
+            by)            echo "Плейлист Spotify (CSV) -> музика" ;;
+            menu_dl)       echo "Завантажити плейлист (CSV)" ;;
+            menu_prev)     echo "Перегляд збігів (без завантаження)" ;;
+            menu_settings) echo "Налаштування" ;;
+            menu_uninstall) echo "Видалити скрипт" ;;
+            menu_quit)     echo "Вийти" ;;
+            csv_title)     echo "ВИБІР CSV" ;;
+            csv_hint)      echo "Номер зі списку або шлях до .csv (q — скасувати):" ;;
+            csv_none)      echo "Немає .csv файлів у" ;;
+            csv_bad)       echo "Файл не знайдено:" ;;
+            audio_title)   echo "ФОРМАТ АУДІО" ;;
+            choose)        echo "Оберіть (q — скасувати):" ;;
+            af_mp3_cover)  echo "MP3   + обкладинка" ;;
+            af_mp3_no)     echo "MP3   — без обкладинки" ;;
+            af_flac)       echo "FLAC  (lossless-контейнер)" ;;
+            af_m4a)        echo "M4A   (AAC, Apple)" ;;
+            af_opus)       echo "OPUS  (малий розмір)" ;;
+            af_wav)        echo "WAV   (DAW)" ;;
+            saved_to)      echo "Збережено до:" ;;
+            dry_note)      echo "Перегляд: нічого не завантажується." ;;
+            searching)     echo "пошук..." ;;
+            st_ok)         echo "OK" ;;
+            st_unver)      echo "OK (тривалість не перевірена)" ;;
+            st_nf)         echo "НЕ ЗНАЙДЕНО" ;;
+            st_skip)       echo "вже є, пропуск" ;;
+            st_fail)       echo "ПОМИЛКА" ;;
+            st_match)      echo "збіг" ;;
+            sum_ok)        echo "Завантажено / знайдено:" ;;
+            sum_skip)      echo "Пропущено (вже є):" ;;
+            sum_nf)        echo "Не знайдено:" ;;
+            sum_fail)      echo "Помилок:" ;;
+            nf_log)        echo "Список незнайдених збережено до:" ;;
+            run_log)        echo "Повний лог:" ;;
+            stray)          echo "Залишки перерваних завантажень (можна видалити):" ;;
+            settings_title) echo "Налаштування" ;;
+            set_lang)      echo "Змінити мову" ;;
+            set_music)     echo "Папка музики" ;;
+            set_csv)       echo "Папка з CSV" ;;
+            set_tol)       echo "Допуск за тривалістю, сек" ;;
+            back)          echo "Назад" ;;
+            cancel)        echo "Скасовано." ;;
+            folder_hint)   echo "Enter/q — залишити поточне" ;;
+            current)       echo "поточне" ;;
+            press_key)     echo "Натисніть будь-яку клавішу..." ;;
+            err_dep)       echo "Не знайдено:" ;;
+            uninstall_title) echo "ВИДАЛЕННЯ СКРИПТУ" ;;
+            uninstall_warn)  echo "Буде видалено:" ;;
+            uninstall_conf)  echo "Конфіг теж буде видалено:" ;;
+            uninstall_note)  echo "Теки з музикою та CSV-файли НЕ видаляються." ;;
+            uninstall_ask)   echo "Підтвердити? [y/N]:" ;;
+            uninstall_done)  echo "Скрипт видалено." ;;
+            uninstall_abort) echo "Скасовано. Скрипт залишився." ;;
+            uninstall_sudo)  echo "Для видалення цього файлу потрібен sudo." ;;
+            setup_title)   echo "ПЕРШИЙ ЗАПУСК" ;;
+            setup_lang)    echo "Select language / Выберите язык / Оберіть мову:" ;;
+            setup_saved)   echo "Налаштування збережено!" ;;
+            menu_fix)      echo "Виправити теги й обкладинки (вже завантажене)" ;;
+            set_genre)     echo "Писати жанр із CSV" ;;
+            fix_note)      echo "Режим виправлення: перезаписує теги й обкладинки у файлів на диску." ;;
+            fix_ask)       echo "Перезаписати теги й обкладинки? [y/N]:" ;;
+            st_fixed)      echo "теги + обкладинку оновлено" ;;
+            st_nocover)    echo "теги OK, обкладинку не знайдено" ;;
+            st_tagerr)     echo "завантажено, ПОМИЛКА ТЕГІВ" ;;
+            st_nodisk)     echo "файлу немає на диску" ;;
+            sum_miss)      echo "Немає на диску:" ;;
+            err_log)       echo "Помилки збережено в:" ;;
+        esac ;;
+    esac
+}
+
+# ══════════════════════════════════════════════
+#  UTILITIES
+# ══════════════════════════════════════════════
+save_config() {
+    mkdir -p "$CONFIG_DIR"
+    cat > "$CONFIG_FILE" <<EOF
+UI_LANG="$UI_LANG"
+MUSIC_DIR="$MUSIC_DIR"
+CSV_DIR="$CSV_DIR"
+TOLERANCE="$TOLERANCE"
+WRITE_GENRE="$WRITE_GENRE"
+EOF
+}
+
+print_install_hint() {
+    echo -e "${C_GRAY}Install:${C_RESET}"
+    if command -v pacman &>/dev/null; then
+        echo -e "  ${C_YELLOW}sudo pacman -S yt-dlp ffmpeg python python-mutagen curl${C_RESET}"
+    elif command -v apt &>/dev/null; then
+        echo -e "  ${C_YELLOW}sudo apt update${C_RESET}"
+        echo -e "  ${C_YELLOW}sudo apt install ffmpeg python3 python3-pip python3-mutagen curl${C_RESET}"
+        echo -e "  ${C_GRAY}yt-dlp from apt is often outdated, use pip:${C_RESET}"
+        echo -e "  ${C_YELLOW}python3 -m pip install -U \"yt-dlp[default]\" --break-system-packages${C_RESET}"
+    elif command -v dnf &>/dev/null; then
+        echo -e "  ${C_YELLOW}sudo dnf install yt-dlp ffmpeg python3-mutagen curl${C_RESET}"
+        echo -e "  ${C_GRAY}Full ffmpeg on Fedora needs RPM Fusion${C_RESET}"
+    elif command -v zypper &>/dev/null; then
+        echo -e "  ${C_YELLOW}sudo zypper install yt-dlp ffmpeg python3-mutagen curl${C_RESET}"
+        echo -e "  ${C_GRAY}Full ffmpeg on openSUSE needs the Packman repository${C_RESET}"
+    else
+        echo -e "  ${C_GRAY}yt-dlp, ffmpeg, python3, python3-mutagen, curl (via your package manager)${C_RESET}"
+    fi
+}
+
+check_deps() {
+    local missing=()
+    for cmd in yt-dlp ffmpeg python3 curl; do
+        command -v "$cmd" &>/dev/null || missing+=("$cmd")
+    done
+    python3 -c "import mutagen" 2>/dev/null || missing+=("python-mutagen")
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        echo -e "${C_RED}$(t err_dep) ${missing[*]}${C_RESET}"
+        print_install_hint
+        exit 1
+    fi
+}
+
+usage() {
+    cat <<USAGE
+spt $SPT_VERSION - Spotify playlist (CSV) downloader
+
+Usage:
+  spt              interactive menu
+  spt uninstall    remove the script and its config
+  spt --version    show version
+  spt --help       show this help
+USAGE
+}
+
+do_uninstall() {
+    local self; self="$(readlink -f "${BASH_SOURCE[0]}")"
+    echo -e "\n  ${C_YELLOW}$(t uninstall_title)${C_RESET}"
+    echo -e "  $(t uninstall_warn) $self"
+    echo -e "  ${C_GRAY}$(t uninstall_conf) $CONFIG_DIR${C_RESET}"
+    echo -e "  ${C_GRAY}$(t uninstall_note)${C_RESET}\n"
+    read -rp "  $(t uninstall_ask) " ans
+    if [[ "$ans" != [yY] ]]; then echo -e "  $(t uninstall_abort)"; return 0; fi
+    if [[ -w "$(dirname "$self")" ]]; then
+        rm -f "$self"
+    else
+        echo -e "  ${C_GRAY}$(t uninstall_sudo)${C_RESET}"
+        sudo rm -f "$self" || return 1
+    fi
+    rm -rf "$CONFIG_DIR"
+    UNINSTALLED=1
+    echo -e "  ${C_GREEN}$(t uninstall_done)${C_RESET}"
+}
+
+update_width() {
+    TERM_W=$(tput cols 2>/dev/null || echo 80)
+    if [[ "$TERM_W" -lt 50 ]]; then
+        USE_BOX=false; W=0
+    else
+        USE_BOX=true
+        W=$(( TERM_W - 6 ))
+        [[ $W -gt 70 ]] && W=70
+    fi
+}
+
+box_top() {
+    $USE_BOX || return
+    local label="$1"
+    if [[ -n "$label" ]]; then
+        local llen; llen=$(printf '%s' "$label" | wc -m)
+        local total=$(( W - llen - 2 ))
+        local pad=$(( total / 2 )); [[ $pad -lt 1 ]] && pad=1
+        printf "${C_GRAY}%s" "$CH_TL"
+        printf -- "${CH_H}%.0s" $(seq 1 $pad)
+        printf "${C_RESET}${C_WHITE} %s ${C_GRAY}" "$label"
+        local right=$(( total - pad )); [[ $right -lt 1 ]] && right=1
+        printf -- "${CH_H}%.0s" $(seq 1 $right)
+        printf "%s${C_RESET}\n" "$CH_TR"
+    else
+        printf "${C_GRAY}%s" "$CH_TL"
+        printf -- "${CH_H}%.0s" $(seq 1 $W)
+        printf "%s${C_RESET}\n" "$CH_TR"
+    fi
+}
+
+box_line() {
+    local content="$1"
+    if ! $USE_BOX; then echo -e "$content"; return; fi
+    local stripped; stripped=$(printf '%b' "$content" | sed 's/\x1b\[[0-9;]*m//g')
+    local len=${#stripped}
+    local pad=$(( W - len - 1 )); [[ $pad -lt 0 ]] && pad=0
+    printf "${C_GRAY}%s${C_RESET} %b%*s${C_GRAY}%s${C_RESET}\n" "$CH_V" "$content" "$pad" "" "$CH_V"
+}
+
+box_sep() {
+    if ! $USE_BOX; then
+        printf "${C_GRAY}"; printf -- "${CH_H}%.0s" $(seq 1 30); printf "${C_RESET}\n"; return
+    fi
+    printf "${C_GRAY}%s" "$CH_LJ"
+    printf -- "${CH_H}%.0s" $(seq 1 $W)
+    printf "%s${C_RESET}\n" "$CH_RJ"
+}
+
+box_bot() {
+    $USE_BOX || return
+    printf "${C_GRAY}%s" "$CH_BL"
+    printf -- "${CH_H}%.0s" $(seq 1 $W)
+    printf "%s${C_RESET}\n" "$CH_BR"
+}
+
+print_header() {
+    update_width; echo
+    box_top "$(t title)"
+    box_line "  ${C_GRAY}$(t by)${C_RESET}"
+    box_bot; echo
+}
+
+# ══════════════════════════════════════════════
+#  LANGUAGE / FIRST RUN
+# ══════════════════════════════════════════════
+setup_language() {
+    clear; update_width; echo
+    box_top "$(t setup_title)"
+    box_line ""
+    box_line "  ${C_WHITE}$(t setup_lang)${C_RESET}"
+    box_line ""
+    box_line "  ${C_YELLOW}[1]${C_RESET}  English"
+    box_line "  ${C_BLUE}[2]${C_RESET}  Русский"
+    box_line "  ${C_GREEN}[3]${C_RESET}  Українська"
+    box_line ""
+    box_bot; echo
+    read -rp "  -> " choice
+    case "$choice" in
+        1) UI_LANG="en" ;;
+        2) UI_LANG="ru" ;;
+        3) UI_LANG="uk" ;;
+        *) UI_LANG="en" ;;
+    esac
+}
+
+first_run() {
+    setup_language
+    save_config
+    echo -e "  ${C_GREEN}v $(t setup_saved)${C_RESET}"
+    echo -e "  ${C_GRAY}~/.config/spt/config${C_RESET}"
+    sleep 1
+}
+
+# ══════════════════════════════════════════════
+#  SETTINGS
+# ══════════════════════════════════════════════
+# edit one config variable by name (bash 4.3+ nameref)
+edit_setting() {
+    local -n ref="$1"
+    local label="$2" input
+    echo -e "\n  ${C_GRAY}$label — $(t folder_hint)${C_RESET}"
+    echo -e "  ${C_DIM}$(t current): $ref${C_RESET}"
+    read -rp "  -> " input
+    if [[ -z "$input" || "$input" == "q" || "$input" == "Q" ]]; then
+        echo -e "  ${C_GRAY}$(t cancel)${C_RESET}"
+    else
+        ref="${input/#\~/$HOME}"
+        [[ "$TOLERANCE" =~ ^[0-9]+$ ]] || TOLERANCE=4
+        save_config
+    fi
+}
+
+settings_menu() {
+    while true; do
+        clear; print_header
+        box_top "$(t settings_title)"
+        box_line ""
+        box_line "  ${C_YELLOW}[1]${C_RESET}  $(t set_lang)   ${C_GRAY}[$UI_LANG]${C_RESET}"
+        box_line "  ${C_YELLOW}[2]${C_RESET}  $(t set_music)"
+        box_line "  ${C_GRAY}      $MUSIC_DIR${C_RESET}"
+        box_line "  ${C_YELLOW}[3]${C_RESET}  $(t set_csv)"
+        box_line "  ${C_GRAY}      $CSV_DIR${C_RESET}"
+        box_line "  ${C_YELLOW}[4]${C_RESET}  $(t set_tol)   ${C_GRAY}[$TOLERANCE]${C_RESET}"
+        box_line "  ${C_YELLOW}[5]${C_RESET}  $(t set_genre)   ${C_GRAY}[$WRITE_GENRE]${C_RESET}"
+        box_sep
+        box_line "  ${C_GRAY}[b/q]${C_RESET}  $(t back)"
+        box_line ""
+        box_bot; echo
+        read -rp "  -> " choice
+        case "$choice" in
+            1) setup_language; save_config ;;
+            2) edit_setting MUSIC_DIR "$(t set_music)" ;;
+            3) edit_setting CSV_DIR "$(t set_csv)" ;;
+            4) edit_setting TOLERANCE "$(t set_tol)" ;;
+            5) [[ "$WRITE_GENRE" == "yes" ]] && WRITE_GENRE="no" || WRITE_GENRE="yes"; save_config ;;
+            b|B|q|Q) break ;;
+        esac
+    done
+}
+
+# ══════════════════════════════════════════════
+#  CSV PARSING (python, handles quoting properly)
+#  output per track, fields separated by \x1f:
+#  base | artists | title | album | duration_sec | first_artist | date | genres | track_id
+# ══════════════════════════════════════════════
+parse_csv() {
+python3 - "$1" <<'PY'
+import csv, re, sys
+ZW  = re.compile('[\u200b\u200c\u200d\u2060\ufeff]')
+BAD = re.compile(r'[\\/:*?"<>|]')
+def clean(s): return re.sub(r'\s+', ' ', ZW.sub('', s or '')).strip()
+def safe(s):  return BAD.sub('', clean(s)).strip(' .')
+with open(sys.argv[1], newline='', encoding='utf-8-sig') as f:
+    for row in csv.DictReader(f):
+        title   = clean(row.get('Track Name'))
+        artists = [clean(a) for a in (row.get('Artist Name(s)') or '').split(';') if clean(a)]
+        album   = clean(row.get('Album Name'))
+        date    = clean(row.get('Release Date'))
+        genres  = clean(row.get('Genres'))
+        tid     = (row.get('Track URI') or '').split(':')[-1].strip()
+        try:    dur = round(int(row.get('Duration (ms)') or 0) / 1000)
+        except ValueError: dur = 0
+        if not title: continue
+        a_all = ', '.join(artists)
+        base  = safe(f"{a_all} - {title}" if a_all else title)[:150]
+        print('\x1f'.join([base, a_all, title, album, str(dur), artists[0] if artists else '', date, genres, tid]))
+PY
+}
+
+# write tags + embed cover (mutagen). errors go to stderr, exit code 1 on failure
+# args: file title artists album date genres cover_file
+tag_file() {
+python3 - "$@" <<'PY'
+import sys, base64, mutagen
+path, title, artist, album, date, genre, cover = sys.argv[1:8]
+ext = path.rsplit('.', 1)[-1].lower()
+try:
+    if ext == 'wav':
+        sys.exit(0)
+    f = mutagen.File(path, easy=True)
+    if f is None:
+        raise RuntimeError('unsupported format')
+    if f.tags is None:
+        f.add_tags()
+    f['title'] = [title]
+    if artist: f['artist'] = [artist]
+    if album:  f['album']  = [album]
+    if date:   f['date']   = [date[:4]]   # year only: the player ignores full dates
+    genres = [g.strip() for g in genre.split(',') if g.strip()] if genre else []
+    f['genre'] = genres or ['Music']      # player shows 'year | genre' only when a genre exists
+    f.save()
+    if cover:
+        data = open(cover, 'rb').read()
+        if data[:3] == b'\xff\xd8\xff':          mime = 'image/jpeg'
+        elif data[:8] == b'\x89PNG\r\n\x1a\n':   mime = 'image/png'
+        else: raise RuntimeError('cover is not a jpeg/png')
+        if ext == 'mp3':
+            from mutagen.mp3 import MP3
+            from mutagen.id3 import APIC
+            a = MP3(path); a.tags.delall('APIC')
+            a.tags.add(APIC(encoding=3, mime=mime, type=3, desc='Cover', data=data))
+            a.save()
+        elif ext == 'flac':
+            from mutagen.flac import FLAC, Picture
+            a = FLAC(path); a.clear_pictures()
+            pic = Picture(); pic.type = 3; pic.mime = mime; pic.desc = 'Cover'; pic.data = data
+            a.add_picture(pic); a.save()
+        elif ext == 'm4a':
+            from mutagen.mp4 import MP4, MP4Cover
+            a = MP4(path)
+            fmt = MP4Cover.FORMAT_JPEG if mime == 'image/jpeg' else MP4Cover.FORMAT_PNG
+            a['covr'] = [MP4Cover(data, imageformat=fmt)]
+            a.save()
+        elif ext == 'opus':
+            from mutagen.oggopus import OggOpus
+            from mutagen.flac import Picture
+            a = OggOpus(path)
+            pic = Picture(); pic.type = 3; pic.mime = mime; pic.desc = 'Cover'; pic.data = data
+            a['metadata_block_picture'] = [base64.b64encode(pic.write()).decode('ascii')]
+            a.save()
+except SystemExit:
+    raise
+except Exception as e:
+    sys.stderr.write('tag error: %s: %s\n' % (path, e))
+    sys.exit(1)
+PY
+}
+
+# Spotify album cover without API keys: the public oEmbed endpoint gives a
+# thumbnail url (300px); we try the 640px variant first and fall back to 300px.
+# prints the path of a cached image file, or nothing if it failed
+get_cover() {
+    local id="$1" url hash out
+    [[ -z "$id" ]] && return 1
+    url="$(curl -sf --max-time 15 "https://open.spotify.com/oembed?url=https://open.spotify.com/track/$id" \
+           | python3 -c 'import sys,json; print(json.load(sys.stdin).get("thumbnail_url",""))' 2>/dev/null)"
+    [[ -z "$url" ]] && return 1
+    hash="${url##*/}"; out="$COVER_CACHE/$hash.img"
+    if [[ ! -s "$out" ]]; then
+        curl -sfL --max-time 20 "${url/ab67616d00001e02/ab67616d0000b273}" -o "$out" 2>/dev/null \
+            || curl -sfL --max-time 20 "$url" -o "$out" 2>/dev/null \
+            || { rm -f "$out"; return 1; }
+    fi
+    [[ -s "$out" ]] && echo "$out"
+}
+
+# ══════════════════════════════════════════════
+#  SEARCH: first YouTube result whose duration is
+#  within TOLERANCE seconds of the CSV duration.
+#  prints "ID DURATION"; DURATION is "?" when yt-dlp
+#  gave no duration (then the first result is used).
+# ══════════════════════════════════════════════
+find_match() {
+    local query="$1" want="$2" dur id diff first_na=""
+    while IFS=$'\t' read -r dur id; do
+        [[ -z "$id" ]] && continue
+        if [[ "$dur" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+            dur="${dur%.*}"
+            if (( want > 0 )); then
+                diff=$(( dur > want ? dur - want : want - dur ))
+                (( diff <= TOLERANCE )) && { echo "$id $dur"; return 0; }
+            else
+                echo "$id $dur"; return 0
+            fi
+        else
+            [[ -z "$first_na" ]] && first_na="$id"
+        fi
+    done < <(yt-dlp --no-warnings --flat-playlist \
+                 --print $'%(duration)s\t%(id)s' "ytsearch5:$query" 2>/dev/null)
+    [[ -n "$first_na" ]] && { echo "$first_na ?"; return 0; }
+    return 1
+}
+
+# ══════════════════════════════════════════════
+#  CSV / FORMAT PICKERS
+# ══════════════════════════════════════════════
+choose_csv() {
+    local files=() f i=1 input
+    mapfile -t files < <(ls -t "$CSV_DIR"/*.csv 2>/dev/null | head -9)
+    echo
+    box_top "$(t csv_title)"
+    box_line ""
+    if [[ ${#files[@]} -eq 0 ]]; then
+        box_line "  ${C_GRAY}$(t csv_none) $CSV_DIR${C_RESET}"
+    fi
+    for f in "${files[@]}"; do
+        box_line "  ${C_GREEN}[$i]${C_RESET}  $(basename "$f")"
+        i=$(( i + 1 ))
+    done
+    box_line ""
+    box_bot
+    echo -e "  ${C_GRAY}$(t csv_hint)${C_RESET}"
+    read -rp "  -> " input
+    [[ "$input" == "q" || "$input" == "Q" || -z "$input" ]] && { echo -e "  ${C_GRAY}$(t cancel)${C_RESET}"; return 1; }
+
+    if [[ "$input" =~ ^[0-9]$ && "$input" -ge 1 && "$input" -le ${#files[@]} ]]; then
+        CSV_PATH="${files[$(( input - 1 ))]}"
+    else
+        # strip quotes that a terminal adds when a file is dragged in
+        input="${input#\'}"; input="${input%\'}"
+        input="${input#\"}"; input="${input%\"}"
+        CSV_PATH="${input/#\~/$HOME}"
+    fi
+    if [[ ! -f "$CSV_PATH" ]]; then
+        echo -e "  ${C_RED}$(t csv_bad) $CSV_PATH${C_RESET}"; return 1
+    fi
+    return 0
+}
+
+choose_format() {
+    local fmt_choice
+    echo
+    box_top "$(t audio_title)"
+    box_line ""
+    box_line "  ${C_WHITE}$(t choose)${C_RESET}"
+    box_line ""
+    box_line "  ${C_GREEN}[1]${C_RESET}  $(t af_mp3_cover)"
+    box_line "  ${C_GREEN}[2]${C_RESET}  $(t af_mp3_no)"
+    box_line "  ${C_CYAN}[3]${C_RESET}  $(t af_flac)"
+    box_line "  ${C_YELLOW}[4]${C_RESET}  $(t af_m4a)"
+    box_line "  ${C_YELLOW}[5]${C_RESET}  $(t af_opus)"
+    box_line "  ${C_CYAN}[6]${C_RESET}  $(t af_wav)"
+    box_line ""
+    box_bot
+    read -rp "  -> " fmt_choice
+    case "$fmt_choice" in
+        1) EXT="mp3";  WITH_COVER=1; FMT_ARGS=(-x --audio-format mp3 --audio-quality 0) ;;
+        2) EXT="mp3";  WITH_COVER=0; FMT_ARGS=(-x --audio-format mp3 --audio-quality 0) ;;
+        3) EXT="flac"; WITH_COVER=1; FMT_ARGS=(-x --audio-format flac) ;;
+        4) EXT="m4a";  WITH_COVER=1; FMT_ARGS=(-x --audio-format m4a) ;;
+        5) EXT="opus"; WITH_COVER=1; FMT_ARGS=(-x --audio-format opus) ;;
+        6) EXT="wav";  WITH_COVER=0; FMT_ARGS=(-x --audio-format wav) ;;
+        *) echo -e "  ${C_GRAY}$(t cancel)${C_RESET}"; return 1 ;;
+    esac
+    return 0
+}
+
+# ── persistent run log ─────────────────────────
+#  _download.log is never truncated: every run is appended,
+#  one line per track with the reason for the result.
+rec() {   # rec STATUS "details"
+    [[ -n "$RUN_LOG" ]] || return 0
+    printf '%(%H:%M:%S)T  %-11s %s\n' -1 "$1" "$2" >> "$RUN_LOG"
+}
+
+run_start() {   # run_start MODE
+    local m="download"; [[ "$1" == "2" ]] && m="fix tags"
+    {
+        printf '\n===== %(%Y-%m-%d %H:%M:%S)T  spt %s  mode: %s =====\n' -1 "$SPT_VERSION" "$m"
+        printf 'csv: %s\n' "$CSV_PATH"
+        [[ "$1" == "0" ]] && printf 'format: %s   tolerance: %ss\n' "$EXT" "$TOLERANCE"
+        printf 'genre from csv: %s   yt-dlp: %s\n' "$WRITE_GENRE" "$(yt-dlp --version 2>/dev/null || echo '?')"
+    } >> "$RUN_LOG"
+    printf '\n===== %(%Y-%m-%d %H:%M:%S)T =====\n' -1 >> "$RUN_ERR"
+}
+
+# ══════════════════════════════════════════════
+#  MAIN WORK
+#  mode 0 = download, 1 = preview (no download),
+#  mode 2 = fix tags + covers of files already on disk
+# ══════════════════════════════════════════════
+run_batch() {
+    local mode="$1"
+    CSV_PATH=""; EXT="mp3"; FMT_ARGS=(); WITH_COVER=1
+
+    choose_csv || { sleep 1; return; }
+    [[ "$mode" == "0" ]] && { choose_format || { sleep 1; return; }; }
+
+    local rows=()
+    mapfile -t rows < <(parse_csv "$CSV_PATH")
+    local total=${#rows[@]}
+    [[ $total -eq 0 ]] && { echo -e "  ${C_RED}0 tracks${C_RESET}"; sleep 2; return; }
+
+    local pl; pl="$(basename "$CSV_PATH" .csv)"; pl="${pl//_/ }"; pl="${pl//\//-}"
+    local dir="$MUSIC_DIR/$pl"
+    local err="$dir/_errors.log"
+    local log="$dir/_download.log"
+    local ans r b e have=0 err_before=0
+    RUN_LOG=""; RUN_ERR=""
+    [[ -f "$err" ]] && err_before=$(( $(wc -l < "$err") ))
+
+    echo
+    case "$mode" in
+        1) echo -e "  ${C_YELLOW}$(t dry_note)${C_RESET}" ;;
+        2)
+            echo -e "  ${C_YELLOW}$(t fix_note)${C_RESET}"
+            echo -e "  ${C_GRAY}$dir${C_RESET}"
+            [[ -d "$dir" ]] || { echo -e "  ${C_RED}$(t st_nodisk)${C_RESET}"; sleep 2; return; }
+            for r in "${rows[@]}"; do
+                b="${r%%$'\x1f'*}"
+                for e in mp3 flac m4a opus; do
+                    [[ -f "$dir/$b.$e" ]] && { have=$(( have + 1 )); break; }
+                done
+            done
+            echo -e "  ${C_WHITE}$have / $total${C_RESET}"
+            echo -e "  ${C_GRAY}$(t fix_ask)${C_RESET}"
+            read -rp "  -> " ans
+            [[ "$ans" == "y" || "$ans" == "Y" ]] || { echo -e "  ${C_GRAY}$(t cancel)${C_RESET}"; sleep 1; return; }
+            RUN_LOG="$log"; RUN_ERR="$err"; run_start 2 ;;
+        0)
+            echo -e "  ${C_GRAY}$(t saved_to) ${C_BLUE}$dir${C_RESET}"
+            mkdir -p "$dir"; RUN_LOG="$log"; RUN_ERR="$err"; run_start 0 ;;
+    esac
+    echo
+
+    COVER_CACHE="$(mktemp -d)"
+    local n=0 ok=0 skip=0 nf=0 fail=0 miss=0
+    local row base artists title album dur first date genres tid gen res id vdur file cov tries dl_ok
+    local nf_list=()
+    for row in "${rows[@]}"; do
+        n=$(( n + 1 ))
+        IFS=$'\x1f' read -r base artists title album dur first date genres tid <<< "$row"
+        printf "  ${C_GRAY}[%d/%d]${C_RESET} %s " "$n" "$total" "$base"
+        gen=""; [[ "$WRITE_GENRE" == "yes" ]] && gen="$genres"
+
+        # ── fix mode: no search, no download ──
+        if [[ "$mode" == "2" ]]; then
+            file=""
+            for e in mp3 flac m4a opus; do
+                [[ -f "$dir/$base.$e" ]] && { file="$dir/$base.$e"; break; }
+            done
+            if [[ -z "$file" ]]; then
+                echo -e "${C_GRAY}$(t st_nodisk)${C_RESET}"; miss=$(( miss + 1 )); rec MISSING "$base"; continue
+            fi
+            cov="$(get_cover "$tid")"
+            if tag_file "$file" "$title" "$artists" "$album" "$date" "$gen" "$cov" 2>>"$err"; then
+                if [[ -n "$cov" ]]; then echo -e "${C_GREEN}$(t st_fixed)${C_RESET}"; rec FIXED "$base"
+                else echo -e "${C_YELLOW}$(t st_nocover)${C_RESET}"; rec FIXED-NOCOV "$base  (cover not available)"; fi
+                ok=$(( ok + 1 ))
+            else
+                echo -e "${C_RED}$(t st_fail)${C_RESET}"; fail=$(( fail + 1 )); rec TAGFAIL "$base  (see _errors.log)"
+            fi
+            continue
+        fi
+
+        if [[ "$mode" == "0" && -f "$dir/$base.$EXT" ]]; then
+            echo -e "${C_GRAY}$(t st_skip)${C_RESET}"; skip=$(( skip + 1 )); rec SKIP "$base  (already exists)"; continue
+        fi
+
+        res="$(find_match "$first $title" "$dur")"
+        if [[ -z "$res" ]]; then
+            echo -e "${C_RED}$(t st_nf)${C_RESET}"
+            nf=$(( nf + 1 )); nf_list+=("$base"); rec NOT-FOUND "$base  (csv ${dur}s, tolerance ${TOLERANCE}s)"; continue
+        fi
+        read -r id vdur <<< "$res"
+
+        if [[ "$mode" == "1" ]]; then
+            echo -e "${C_GREEN}$(t st_match)${C_RESET} ${C_GRAY}csv ${dur}s / yt ${vdur}s  $id${C_RESET}"
+            ok=$(( ok + 1 )); continue
+        fi
+
+        # download (2 attempts); '%' in names would be read by yt-dlp as a template, so escape it
+        printf '== %s (%s)\n' "$base" "$id" >> "$err"
+        dl_ok=1
+        for tries in 1 2; do
+            if yt-dlp -q --no-warnings --no-playlist "${FMT_ARGS[@]}" \
+                      -o "${dir//%/%%}/${base//%/%%}.%(ext)s" \
+                      "https://www.youtube.com/watch?v=$id" 2>>"$err" \
+               && [[ -f "$dir/$base.$EXT" ]]; then
+                dl_ok=0; break
+            fi
+            sleep 2
+        done
+
+        if [[ $dl_ok -ne 0 ]]; then
+            echo -e "${C_RED}$(t st_fail)${C_RESET}"
+            fail=$(( fail + 1 )); nf_list+=("$base"); rec FAILED "$base  id=$id  (see _errors.log)"; continue
+        fi
+
+        cov=""; [[ "$WITH_COVER" == "1" ]] && cov="$(get_cover "$tid")"
+        if tag_file "$dir/$base.$EXT" "$title" "$artists" "$album" "$date" "$gen" "$cov" 2>>"$err"; then
+            if [[ "$vdur" == "?" ]]; then echo -e "${C_YELLOW}$(t st_unver)${C_RESET}"; rec OK-UNVERIFIED "$base  id=$id  (duration unknown, csv ${dur}s)"
+            elif [[ "$WITH_COVER" == "1" && -z "$cov" ]]; then echo -e "${C_YELLOW}$(t st_nocover)${C_RESET}"; rec OK-NOCOVER "$base  id=$id  csv=${dur}s yt=${vdur}s  (cover not available)"
+            else echo -e "${C_GREEN}$(t st_ok)${C_RESET}"; rec OK "$base  id=$id  csv=${dur}s yt=${vdur}s"; fi
+        else
+            echo -e "${C_YELLOW}$(t st_tagerr)${C_RESET}"; rec TAGERR "$base  id=$id  (audio saved, tags failed; see _errors.log)"
+        fi
+        ok=$(( ok + 1 ))
+    done
+    rm -rf "$COVER_CACHE"
+
+    echo
+    echo -e "  ${C_GREEN}$(t sum_ok) $ok${C_RESET}"
+    [[ "$mode" == "2" ]] && echo -e "  ${C_GRAY}$(t sum_miss) $miss${C_RESET}" \
+                         || echo -e "  ${C_GRAY}$(t sum_skip) $skip${C_RESET}"
+    echo -e "  ${C_RED}$(t sum_nf) $nf   $(t sum_fail) $fail${C_RESET}"
+
+    if [[ "$mode" == "0" && ${#nf_list[@]} -gt 0 ]]; then
+        printf '%s\n' "${nf_list[@]}" > "$dir/_not_found.txt"
+        echo -e "  ${C_GRAY}$(t nf_log) $dir/_not_found.txt${C_RESET}"
+    fi
+    if [[ "$mode" == "0" ]]; then
+        local stray=() f
+        while IFS= read -r -d '' f; do stray+=("${f##*/}"); done < <(
+            find "$dir" -maxdepth 1 -type f \( -name '*.part' -o -name '*.ytdl' -o -name '*.webm' \) -print0 2>/dev/null)
+        if [[ ${#stray[@]} -gt 0 ]]; then
+            echo -e "  ${C_YELLOW}$(t stray) ${#stray[@]}${C_RESET}"
+            for f in "${stray[@]}"; do echo -e "  ${C_GRAY}  $f${C_RESET}"; rec LEFTOVER "$f"; done
+        fi
+    fi
+    if [[ "$mode" != "1" ]]; then
+        tail -n +$(( err_before + 1 )) "$err" 2>/dev/null | grep -qv '^==' \
+            && echo -e "  ${C_GRAY}$(t err_log) $err${C_RESET}"
+        rec SUMMARY "ok=$ok  skipped=$skip  missing=$miss  not_found=$nf  failed=$fail"
+        echo -e "  ${C_GRAY}$(t run_log) $log${C_RESET}"
+    fi
+    echo -e "\n  ${C_GRAY}$(t press_key)${C_RESET}"; read -rsn1
+}
+
+# ══════════════════════════════════════════════
+#  MAIN MENU
+# ══════════════════════════════════════════════
+main_menu() {
+    while true; do
+        clear; print_header
+        box_top
+        box_line "  ${C_GREEN}[1]${C_RESET}  $(t menu_dl)"
+        box_line "  ${C_BLUE}[2]${C_RESET}  $(t menu_prev)"
+        box_line "  ${C_CYAN}[3]${C_RESET}  $(t menu_fix)"
+        box_sep
+        box_line "  ${C_YELLOW}[4]${C_RESET}  $(t menu_settings)"
+        box_sep
+        box_line "  ${C_RED}[5]${C_RESET}  $(t menu_uninstall)"
+        box_sep
+        box_line "  ${C_GRAY}[q]${C_RESET}  $(t menu_quit)"
+        box_bot; echo
+
+        read -rp "  -> " choice
+        case "$choice" in
+            1) run_batch 0 ;;
+            2) run_batch 1 ;;
+            3) run_batch 2 ;;
+            4) settings_menu ;;
+            5) UNINSTALLED=0; do_uninstall
+               echo -e "\n  ${C_GRAY}$(t press_key)${C_RESET}"; read -rsn1
+               [[ "$UNINSTALLED" == "1" ]] && { echo; exit 0; } ;;
+            q|Q) echo; exit 0 ;;
+        esac
+    done
+}
+
+# ══════════════════════════════════════════════
+#  ENTRY POINT
+# ══════════════════════════════════════════════
+case "${1:-}" in
+    -h|--help|help)     usage; exit 0 ;;
+    -v|--version)       echo "spt $SPT_VERSION"; exit 0 ;;
+    uninstall)          do_uninstall; exit $? ;;
+    "")                 ;;
+    *)                  usage; exit 1 ;;
+esac
+
+check_deps
+
+if [[ ! -f "$CONFIG_FILE" ]]; then
+    clear; first_run
+fi
+
+main_menu
