@@ -81,9 +81,32 @@ sudo zypper install yt-dlp ffmpeg python3 python3-mutagen curl unzip
 
 Full-featured `ffmpeg` on openSUSE comes from the Packman repository.
 
-#### Step 2. Unpack the project
+#### Step 2. Get the project
 
-If you downloaded `spotify-downloader.zip` into your Downloads folder:
+**Option A — with git (recommended, easy to update later).** Install git, then download the project:
+
+```bash
+# Linux Mint / Ubuntu / Debian
+sudo apt install -y git
+# Arch Linux / Manjaro / EndeavourOS
+sudo pacman -S --needed git
+# Fedora
+sudo dnf install -y git
+# openSUSE
+sudo zypper install git
+```
+
+Run only the line for your distribution, then:
+
+```bash
+cd ~
+git clone https://github.com/07NORTH07/linux-scripts.git
+cd linux-scripts/spotify-downloader
+```
+
+To update later: `cd ~/linux-scripts && git pull`.
+
+**Option B — from a ZIP archive.** If you downloaded `spotify-downloader.zip` into your Downloads folder:
 
 ```bash
 cd ~/Downloads
@@ -92,6 +115,8 @@ cd spotify-downloader
 ```
 
 (If your browser saved it elsewhere, replace `~/Downloads` with that folder.)
+
+Either way, you should now be inside the `spotify-downloader` folder — the one that contains `install.sh`. Check with `ls`.
 
 #### Step 3. Run the installer
 
@@ -152,6 +177,7 @@ On first launch you choose the interface language. Next: get a CSV (see [Getting
 | `sudo: command not found` | You are probably in a minimal system or logged in as root — run the command without `sudo` |
 | SPT does not see your CSV file | Open `[4] Settings` and set **CSV folder** to the folder where the file really is (see the note in Step 5) |
 | `Permission denied` when running `install.sh` | Start it with `bash install.sh` (not `./install.sh`) |
+| `git: command not found` | Install git (see Step 2, Option A) or use Option B with the ZIP |
 | `unzip: command not found` | Install it: `sudo apt install unzip` (or `pacman -S` / `dnf install` / `zypper install`) |
 | `No module named pip` / `pip: command not found` | Debian-based: `sudo apt install python3-pip` |
 | `externally-managed-environment` | Add `--break-system-packages` to the `pip` command, exactly as in Step 1 |
@@ -335,9 +361,32 @@ sudo zypper install yt-dlp ffmpeg python3 python3-mutagen curl unzip
 
 Полнофункциональный `ffmpeg` в openSUSE берётся из репозитория Packman.
 
-#### Шаг 2. Распакуйте проект
+#### Шаг 2. Получите проект
 
-Если вы скачали `spotify-downloader.zip` в папку «Загрузки»:
+**Вариант А — через git (рекомендуется, потом легко обновлять).** Установите git и скачайте проект:
+
+```bash
+# Linux Mint / Ubuntu / Debian
+sudo apt install -y git
+# Arch Linux / Manjaro / EndeavourOS
+sudo pacman -S --needed git
+# Fedora
+sudo dnf install -y git
+# openSUSE
+sudo zypper install git
+```
+
+Выполните только строку для своего дистрибутива, затем:
+
+```bash
+cd ~
+git clone https://github.com/07NORTH07/linux-scripts.git
+cd linux-scripts/spotify-downloader
+```
+
+Чтобы обновиться позже: `cd ~/linux-scripts && git pull`.
+
+**Вариант Б — из ZIP-архива.** Если вы скачали `spotify-downloader.zip` в папку «Загрузки»:
 
 ```bash
 cd ~/Downloads
@@ -346,6 +395,8 @@ cd spotify-downloader
 ```
 
 (Если браузер сохранил архив в другое место, замените `~/Downloads` на нужную папку. В русскоязычной системе папка может называться `~/Загрузки`.)
+
+В любом случае вы должны оказаться в папке `spotify-downloader`, где лежит `install.sh`. Проверьте командой `ls`.
 
 #### Шаг 3. Запустите установщик
 
@@ -406,6 +457,7 @@ spt
 | `sudo: command not found` | Вы, скорее всего, в минимальной системе или под root — выполните команду без `sudo` |
 | SPT не видит ваш CSV-файл | Откройте `[4] Settings` и укажите в **папке с CSV** ту папку, где файл лежит на самом деле (см. заметку в шаге 5) |
 | `Permission denied` при запуске `install.sh` | Запускайте через `bash install.sh` (а не `./install.sh`) |
+| `git: command not found` | Установите git (шаг 2, вариант А) или воспользуйтесь вариантом Б с ZIP |
 | `unzip: command not found` | Установите: `sudo apt install unzip` (или `pacman -S` / `dnf install` / `zypper install`) |
 | `No module named pip` / `pip: command not found` | Для Debian-based: `sudo apt install python3-pip` |
 | `externally-managed-environment` | Добавьте `--break-system-packages` к команде `pip`, как в шаге 1 |
@@ -589,9 +641,32 @@ sudo zypper install yt-dlp ffmpeg python3 python3-mutagen curl unzip
 
 Повнофункціональний `ffmpeg` в openSUSE береться з репозиторію Packman.
 
-#### Крок 2. Розпакуйте проєкт
+#### Крок 2. Отримайте проєкт
 
-Якщо ви завантажили `spotify-downloader.zip` у теку «Завантаження»:
+**Варіант А — через git (рекомендовано, потім легко оновлювати).** Встановіть git і завантажте проєкт:
+
+```bash
+# Linux Mint / Ubuntu / Debian
+sudo apt install -y git
+# Arch Linux / Manjaro / EndeavourOS
+sudo pacman -S --needed git
+# Fedora
+sudo dnf install -y git
+# openSUSE
+sudo zypper install git
+```
+
+Виконайте лише рядок для свого дистрибутива, потім:
+
+```bash
+cd ~
+git clone https://github.com/07NORTH07/linux-scripts.git
+cd linux-scripts/spotify-downloader
+```
+
+Щоб оновитися пізніше: `cd ~/linux-scripts && git pull`.
+
+**Варіант Б — із ZIP-архіву.** Якщо ви завантажили `spotify-downloader.zip` у теку «Завантаження»:
 
 ```bash
 cd ~/Downloads
@@ -600,6 +675,8 @@ cd spotify-downloader
 ```
 
 (Якщо браузер зберіг архів в іншому місці, замініть `~/Downloads` на потрібну теку. В україномовній системі тека може називатися `~/Завантаження`.)
+
+У будь-якому разі ви маєте опинитися в теці `spotify-downloader`, де лежить `install.sh`. Перевірте командою `ls`.
 
 #### Крок 3. Запустіть інсталятор
 
@@ -660,6 +737,7 @@ spt
 | `sudo: command not found` | Ви, імовірно, у мінімальній системі або під root — виконайте команду без `sudo` |
 | SPT не бачить ваш CSV-файл | Відкрийте `[4] Settings` і вкажіть у **теці з CSV** ту теку, де файл лежить насправді (див. примітку в кроці 5) |
 | `Permission denied` під час запуску `install.sh` | Запускайте через `bash install.sh` (а не `./install.sh`) |
+| `git: command not found` | Встановіть git (крок 2, варіант А) або скористайтеся варіантом Б із ZIP |
 | `unzip: command not found` | Встановіть: `sudo apt install unzip` (або `pacman -S` / `dnf install` / `zypper install`) |
 | `No module named pip` / `pip: command not found` | Для Debian-based: `sudo apt install python3-pip` |
 | `externally-managed-environment` | Додайте `--break-system-packages` до команди `pip`, як у кроці 1 |
