@@ -10,3 +10,4 @@ A collection of Linux shell utilities.
 |--------|-------------|
 | [yt-downloader](./yt-downloader/) | Console YouTube downloader — audio, video, thumbnails |
 | [spotify-downloader](./spotify-downloader/) | Console Spotify playlist (CSV) downloader — tagged audio with covers |
+| [asciiquarium-alacritty](./asciiquarium-alacritty/) | Fish launcher for asciiquarium in a tuned Alacritty window, fixes invisible castle and whale |
